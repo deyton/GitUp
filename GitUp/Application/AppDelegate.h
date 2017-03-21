@@ -35,9 +35,9 @@
 @property(nonatomic, weak) IBOutlet NSTextField* copyrightTextField;
 
 @property(nonatomic, strong) IBOutlet NSWindow* welcomeWindow;
-@property(nonatomic, weak) IBOutlet NSPopUpButton* recentPopUpButton;
 @property(nonatomic, weak) IBOutlet GILinkButton* twitterButton;
 @property(nonatomic, weak) IBOutlet GILinkButton* forumsButton;
+@property (nonatomic, weak) IBOutlet NSTextField*noRecentRepositoriesTextField;
 
 + (instancetype)sharedDelegate;
 + (BOOL)loadPlainTextAuthenticationFormKeychainForURL:(NSURL*)url user:(NSString*)user username:(NSString**)username password:(NSString**)password allowInteraction:(BOOL)allowInteraction;

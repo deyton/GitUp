@@ -19,6 +19,7 @@
 #import <HockeySDK/HockeySDK.h>
 #pragma clang diagnostic pop
 #import <Sparkle/Sparkle.h>
+#import <QuartzCore/QuartzCore.h>
 
 #import <GitUpKit/XLFacilityMacros.h>
 
@@ -48,21 +49,26 @@
 @interface WelcomeView : NSView
 @end
 
-@interface AppDelegate () <NSUserNotificationCenterDelegate, SUUpdaterDelegate>
+@interface AppDelegate () <NSUserNotificationCenterDelegate, SUUpdaterDelegate, NSTableViewDataSource, NSTableViewDelegate>
+@property (weak) IBOutlet NSTableView *tableView;
 - (IBAction)closeWelcomeWindow:(id)sender;
 @end
 
 @implementation WelcomeView
 
 - (void)drawRect:(NSRect)dirtyRect {
-  NSRect bounds = self.bounds;
-  CGContextRef context = [[NSGraphicsContext currentContext] graphicsPort];
+  if (floor(NSAppKitVersionNumber) >= NSAppKitVersionNumber10_10) {
+    NSRect bounds = self.bounds;
+    CGContextRef context = [[NSGraphicsContext currentContext] graphicsPort];
 
-  CGContextClearRect(context, dirtyRect);
+    CGContextClearRect(context, dirtyRect);
 
-  CGContextSetRGBFillColor(context, 0.9, 0.9, 0.9, 1.0);
-  GICGContextAddRoundedRect(context, bounds, kWelcomeWindowCornerRadius);
-  CGContextFillPath(context);
+    CGContextSetRGBFillColor(context, 0.9, 0.9, 0.9, 1.0);
+    GICGContextAddRoundedRect(context, bounds, kWelcomeWindowCornerRadius);
+    CGContextFillPath(context);
+  } else {
+    [super drawRect:dirtyRect];
+  }
 }
 
 @end
@@ -84,6 +90,13 @@
   return YES;
 }
 
+@end
+
+@interface SubtitleCellView : NSTableCellView
+@property(nonatomic, weak) IBOutlet NSTextField* subtitleTextField;
+@end
+
+@implementation SubtitleCellView
 @end
 
 @implementation AppDelegate {
@@ -114,6 +127,8 @@
     kUserDefaultsKey_ShowWelcomeWindow : @(YES),
   };
   [[NSUserDefaults standardUserDefaults] registerDefaults:defaults];
+  // Initialize custom subclass of DocumentController
+  [DocumentController sharedDocumentController];
 }
 
 + (instancetype)sharedDelegate {
@@ -235,36 +250,6 @@
   [self _openRepositoryWithURL:sender.representedObject withCloneMode:kCloneMode_None windowModeID:NSNotFound];
 }
 
-- (void)_willShowRecentPopUpMenu:(NSNotification*)notification {
-  NSMenu* menu = _recentPopUpButton.menu;
-  while (menu.numberOfItems > 1) {
-    [menu removeItemAtIndex:1];
-  }
-  NSArray* array = [[NSDocumentController sharedDocumentController] recentDocumentURLs];
-  if (array.count) {
-    for (NSURL* url in array) {
-      NSString* path = url.path;
-      NSString* title = path.lastPathComponent;
-      for (NSMenuItem* item in menu.itemArray) {  // TODO: Handle identical second-to-last path component
-        if ([item.title caseInsensitiveCompare:title] == NSOrderedSame) {
-          title = [NSString stringWithFormat:@"%@ — %@", path.lastPathComponent, [[path stringByDeletingLastPathComponent] lastPathComponent]];
-          path = [(NSURL*)item.representedObject path];
-          item.title = [NSString stringWithFormat:@"%@ — %@", path.lastPathComponent, [[path stringByDeletingLastPathComponent] lastPathComponent]];
-          break;
-        }
-      }
-      NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title action:@selector(_openDocument:) keyEquivalent:@""];
-      item.target = self;
-      item.representedObject = url;
-      [menu addItem:item];
-    }
-  } else {
-    NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"No Repositories", nil) action:NULL keyEquivalent:@""];
-    item.enabled = NO;
-    [menu addItem:item];
-  }
-}
-
 - (void)awakeFromNib {
   _welcomeMaxHeight = _welcomeWindow.frame.size.height;
 
@@ -273,6 +258,21 @@
   _welcomeWindow.alphaValue = 1.0;
   _welcomeWindow.opaque = NO;
   _welcomeWindow.movableByWindowBackground = YES;
+
+  if (floor(NSAppKitVersionNumber) >= NSAppKitVersionNumber10_10) {
+    CAShapeLayer* maskLayer = [CAShapeLayer layer];
+    maskLayer.path = [self createPathForRect:_tableView.enclosingScrollView.bounds roundingCornersWithRadius:kWelcomeWindowCornerRadius];
+    _tableView.enclosingScrollView.wantsLayer = YES;
+    _tableView.enclosingScrollView.layer.mask = maskLayer;
+    _tableView.enclosingScrollView.contentView.wantsLayer = YES;
+    _tableView.enclosingScrollView.contentView.layer.mask = maskLayer;
+  } else {
+    _welcomeWindow.styleMask = NSTitledWindowMask | NSFullSizeContentViewWindowMask;
+    _welcomeWindow.titlebarAppearsTransparent = YES;
+    _welcomeWindow.titleVisibility = NSWindowTitleHidden;
+  }
+
+  _tableView.doubleAction = @selector(doubleClicked);
 
   _twitterButton.textAlignment = NSLeftTextAlignment;
   _twitterButton.textFont = [NSFont boldSystemFontOfSize:11];
@@ -289,7 +289,30 @@
     [_channelPopUpButton.menu addItem:item];
   }
 
-  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_willShowRecentPopUpMenu:) name:NSPopUpButtonWillPopUpNotification object:_recentPopUpButton];
+}
+
+- (CGPathRef)createPathForRect:(NSRect)rect roundingCornersWithRadius:(CGFloat)radius {
+  CGMutablePathRef path = CGPathCreateMutable();
+  CGPathAddPartialRoundedRect(path, rect, radius);
+  CGPathCloseSubpath(path);
+  CGPathRef immutablePath = CGPathCreateCopy(path);
+  CGPathRelease(path);
+  return immutablePath;
+}
+
+void CGPathAddPartialRoundedRect(CGMutablePathRef path, CGRect rect, CGFloat radius) {
+  CGPathMoveToPoint(path, NULL, rect.origin.x, rect.origin.y);
+  CGPathAddLineToPoint(path, NULL, rect.origin.x + rect.size.width - radius, rect.origin.y);
+  CGPathAddQuadCurveToPoint(path, NULL, rect.origin.x + rect.size.width, rect.origin.y, rect.origin.x + rect.size.width, rect.origin.y + radius);
+  CGPathAddLineToPoint(path, NULL, rect.origin.x + rect.size.width, rect.origin.y + rect.size.height - radius);
+  CGPathAddQuadCurveToPoint(path, NULL, rect.origin.x + rect.size.width, rect.origin.y + rect.size.height, rect.origin.x + rect.size.width - radius, rect.origin.y + rect.size.height);
+  CGPathAddLineToPoint(path, NULL, rect.origin.x, rect.origin.y + rect.size.height);
+  CGPathAddLineToPoint(path, NULL, rect.origin.x, rect.origin.y);
+}
+
+- (void)doubleClicked {
+  NSURL* URL = [[NSDocumentController sharedDocumentController] recentDocumentURLs][self.tableView.clickedRow];
+  [self _openRepositoryWithURL:URL withCloneMode:kCloneMode_None windowModeID:NSNotFound];
 }
 
 - (void)_updatePreferencePanel {
@@ -319,8 +342,11 @@
 
 - (void)handleDocumentCountChanged {
   BOOL showWelcomeWindow = [[NSUserDefaults standardUserDefaults] boolForKey:kUserDefaultsKey_ShowWelcomeWindow];
-  if (showWelcomeWindow && (_allowWelcome > 0) && ![[[NSDocumentController sharedDocumentController] documents] count]) {
+  NSUInteger zeroDocuments = [[[NSDocumentController sharedDocumentController] documents] count] == 0;
+  if (showWelcomeWindow && (_allowWelcome > 0) && zeroDocuments) {
     if (!_welcomeWindow.visible) {
+      [_tableView reloadData];
+      _noRecentRepositoriesTextField.hidden = !zeroDocuments;
       [_welcomeWindow makeKeyAndOrderFront:nil];
     }
   } else {
@@ -333,9 +359,6 @@
 #pragma mark - NSApplicationDelegate
 
 - (void)applicationWillFinishLaunching:(NSNotification*)notification {
-  // Initialize custom subclass of NSDocumentController
-  [DocumentController sharedDocumentController];
-
 #if !DEBUG
   // Initialize HockeyApp
   [[BITHockeyManager sharedHockeyManager] configureWithIdentifier:@"65233b0e034e4fcbaf6754afba3b2b23"];
@@ -463,6 +486,21 @@
 }
 
 #endif
+
+#pragma mark - NSTableViewDataSource
+
+- (NSView*)tableView:(NSTableView*)tableView viewForTableColumn:(NSTableColumn*)tableColumn row:(NSInteger)row {
+  SubtitleCellView* view = (SubtitleCellView*)[tableView makeViewWithIdentifier:@"SubtitleCellView" owner:self];
+  NSArray* recentDocumentURLs = [[NSDocumentController sharedDocumentController] recentDocumentURLs];
+  NSURL* URL = recentDocumentURLs[row];
+  view.textField.stringValue = URL.path.lastPathComponent;
+  view.subtitleTextField.stringValue = URL.path.stringByDeletingLastPathComponent.stringByAbbreviatingWithTildeInPath;
+  return view;
+}
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
+  return [[NSDocumentController sharedDocumentController] recentDocumentURLs].count;
+}
 
 #pragma mark - Tool
 

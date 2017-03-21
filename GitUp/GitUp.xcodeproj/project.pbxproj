@@ -338,7 +338,7 @@
 					};
 					E2C338AA19F8562F00063D95 = {
 						CreatedOnToolsVersion = 6.1;
-						DevelopmentTeam = 88W3E55T4B;
+						DevelopmentTeam = RAWC97X2T7;
 					};
 				};
 			};
